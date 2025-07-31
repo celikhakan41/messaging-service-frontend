@@ -6,7 +6,7 @@ This is the frontend application for the [Messaging SaaS](https://github.com/cel
 
 - 🌐 Built with React, Vite, and TailwindCSS
 - 🔐 JWT-based authentication
-- 💳 View current subscription plan (FREE / PREMIUM)
+- 💳 View current subscription plan (FREE / PREMIUM / ENTERPRISE)
 - ⚙️ Upgrade plan functionality
 - 📈 Display daily message limit and usage
 - 🔁 WebSocket integration for real-time messaging
@@ -17,7 +17,7 @@ This is the frontend application for the [Messaging SaaS](https://github.com/cel
 
 ## 🖼️ Demo
 
-🌍 [Live Demo (Coming soon via Vercel or Netlify)](https://your-frontend-demo-url.com)
+🌍 [Live Demo ](https://messaging-service-frontend.vercel.app)
 
 > ⚠️ Note: Backend APIs may require an API key or JWT for access.
 
