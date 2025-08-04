@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { BASE_URL } from '../services/api';
 
 const InvoicePage = ({ token }) => {
     const [invoices, setInvoices] = useState([]);
@@ -14,7 +15,7 @@ const InvoicePage = ({ token }) => {
         try {
             setLoading(true);
             setError(null);
-            const response = await fetch('/api/invoices', {
+            const response = await fetch(`${BASE_URL}/invoices`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
@@ -36,7 +37,7 @@ const InvoicePage = ({ token }) => {
         try {
             setPayingInvoices(prev => new Set(prev).add(invoiceId));
 
-            const response = await fetch(`/api/invoices/${invoiceId}/pay`, {
+            const response = await fetch(`${BASE_URL}/invoices/${invoiceId}/pay`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,

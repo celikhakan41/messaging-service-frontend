@@ -1,12 +1,18 @@
 // src/services/api.js
 import axios from 'axios';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+export const BASE_URL = import.meta.env.VITE_API_BASE_URL || 
   (import.meta.env.MODE === 'production' 
     ? 'https://messaging-service-atux.onrender.com/api'
     : 'http://localhost:8080/api');
 
+export const WS_URL = import.meta.env.VITE_WS_BASE_URL || 
+  (import.meta.env.MODE === 'production' 
+    ? 'https://messaging-service-atux.onrender.com'
+    : 'http://localhost:8080');
+
 console.log("BASE_URL:", BASE_URL);
+console.log("WS_URL:", WS_URL);
 console.log("MODE:", import.meta.env.MODE);
 
 export const register = (username, password) =>

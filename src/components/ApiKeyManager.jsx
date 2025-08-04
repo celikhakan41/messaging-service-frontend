@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BASE_URL } from '../services/api';
 
 const ApiKeyManager = ({ token }) => {
     const [apiKeys, setApiKeys] = useState([]);
@@ -14,7 +15,7 @@ const ApiKeyManager = ({ token }) => {
     const fetchApiKeys = async () => {
         try {
             setLoading(true);
-            const response = await fetch('/api/keys/list', {
+            const response = await fetch(`${BASE_URL}/keys/list`, {
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
@@ -45,7 +46,7 @@ const ApiKeyManager = ({ token }) => {
     const generateApiKey = async () => {
         try {
             setGeneratingKey(true);
-            const response = await fetch('/api/keys/generate', {
+            const response = await fetch(`${BASE_URL}/keys/generate`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -122,7 +123,7 @@ const ApiKeyManager = ({ token }) => {
         }
 
         try {
-            const response = await fetch(`/api/keys/${keyId}`, {
+            const response = await fetch(`${BASE_URL}/keys/${keyId}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`,

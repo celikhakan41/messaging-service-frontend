@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BASE_URL } from '../services/api';
 
 const PlanUpgrade = ({ token, onUpgradeSuccess }) => {
     const [selectedPlan, setSelectedPlan] = useState('');
@@ -58,7 +59,7 @@ const PlanUpgrade = ({ token, onUpgradeSuccess }) => {
     useEffect(() => {
         const fetchCurrentPlan = async () => {
             try {
-                const response = await fetch('/api/tenant', {
+                const response = await fetch(`${BASE_URL}/tenant`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 const data = await response.json();
@@ -85,7 +86,7 @@ const PlanUpgrade = ({ token, onUpgradeSuccess }) => {
 
         setLoading(true);
         try {
-            const response = await fetch('/api/tenant/plan', {
+            const response = await fetch(`${BASE_URL}/tenant`, {
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${token}`,

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { BASE_URL } from '../services/api';
 
 const PlanInfo = ({ token }) => {
     const [tenant, setTenant] = useState(null);
@@ -10,7 +11,7 @@ const PlanInfo = ({ token }) => {
         const fetchTenantInfo = async () => {
             try {
                 setLoading(true);
-                const response = await axios.get('/api/tenant', {
+                const response = await axios.get(`${BASE_URL}/tenant`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 setTenant(response.data);

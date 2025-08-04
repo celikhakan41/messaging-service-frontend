@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SockJS from 'sockjs-client';
 import { Client } from '@stomp/stompjs';
+import { WS_URL } from '../services/api';
 
 const Chat = ({ token, username }) => {
     const [messages, setMessages] = useState([]);
@@ -21,7 +22,7 @@ const Chat = ({ token, username }) => {
     }, [messages]);
 
     useEffect(() => {
-        const socket = new SockJS(`/ws?token=${token}`);
+        const socket = new SockJS(`${WS_URL}/ws?token=${token}`);
         const stompClient = new Client({
             webSocketFactory: () => socket,
             connectHeaders: { Authorization: `Bearer ${token}` },
