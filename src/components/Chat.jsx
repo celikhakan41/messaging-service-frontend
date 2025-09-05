@@ -3,7 +3,7 @@ import SockJS from 'sockjs-client';
 import { Client } from '@stomp/stompjs';
 import { WS_URL } from '../services/api';
 
-const Chat = ({ token, username }) => {
+const Chat = ({ username }) => {
     const [messages, setMessages] = useState([]);
     const [receiver, setReceiver] = useState('');
     const [content, setContent] = useState('');
@@ -22,6 +22,7 @@ const Chat = ({ token, username }) => {
     }, [messages]);
 
     useEffect(() => {
+        const token = localStorage.getItem('token');
         const socket = new SockJS(`${WS_URL}/ws?token=${token}`);
         const stompClient = new Client({
             webSocketFactory: () => socket,
@@ -29,7 +30,8 @@ const Chat = ({ token, username }) => {
             onConnect: () => {
                 console.log("Connected via WebSocket");
                 setIsConnected(true);
-                stompClient.subscribe('/topic/messages', msg => {
+                // Backend'e göre her kullanıcının kendi topic'i var: /topic/public/{userId}
+                stompClient.subscribe(`/topic/public/${username}`, msg => {
                     const parsed = JSON.parse(msg.body);
                     setMessages(prev => [...prev, parsed]);
                 });
@@ -50,7 +52,7 @@ const Chat = ({ token, username }) => {
             stompClient.deactivate();
             setIsConnected(false);
         };
-    }, [token]);
+    }, [username]);
 
     const handleTyping = (value) => {
         setContent(value);
@@ -83,7 +85,7 @@ const Chat = ({ token, username }) => {
                 timestamp: new Date().toISOString()
             };
             stompRef.current.publish({
-                destination: "/app/send",
+                destination: "/app/chat.sendMessage",
                 body: JSON.stringify(msg)
             });
             setContent('');

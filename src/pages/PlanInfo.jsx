@@ -1,55 +1,32 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-import { BASE_URL } from '../services/api';
+import React, { useState } from 'react';
 
-const PlanInfo = ({ token }) => {
-    const [tenant, setTenant] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-
-    useEffect(() => {
-        const fetchTenantInfo = async () => {
-            try {
-                setLoading(true);
-                const response = await axios.get(`${BASE_URL}/tenant`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                setTenant(response.data);
-                setError(null);
-            } catch (err) {
-                console.error('Failed to fetch tenant info:', err);
-                setError(err.response?.data?.message || 'Failed to load plan information');
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        if (token) {
-            fetchTenantInfo();
-        }
-    }, [token]);
+const PlanInfo = ({ tenantInfo, loading }) => {
+    const [error] = useState(null);
+    
+    // Dashboard'dan gelen tenantInfo'yu kullanıyoruz, kendi API çağrısı yapmıyoruz
+    const tenant = tenantInfo;
 
     const getPlanColor = (planType) => {
         const colors = {
-            'BASIC': 'from-blue-500 to-blue-600',
-            'PREMIUM': 'from-purple-500 to-purple-600',
-            'ENTERPRISE': 'from-gold-500 to-yellow-600'
+            'FREE': 'from-gray-500 to-gray-600',
+            'PRO': 'from-purple-500 to-purple-600',
+            'ENTERPRISE': 'from-yellow-500 to-orange-600'
         };
         return colors[planType] || 'from-gray-500 to-gray-600';
     };
 
     const getPlanIcon = (planType) => {
         switch (planType) {
-            case 'BASIC':
+            case 'FREE':
+                return (
+                    <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                );
+            case 'PRO':
                 return (
                     <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                );
-            case 'PREMIUM':
-                return (
-                    <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3l14 9-14 9V3z" />
                     </svg>
                 );
             case 'ENTERPRISE':
@@ -69,24 +46,24 @@ const PlanInfo = ({ token }) => {
 
     const getPlanFeatures = (planType) => {
         const features = {
-            'BASIC': [
-                'Up to 100 messages/month',
+            'FREE': [
+                '50 messages/day',
+                '10 requests/minute',
                 'Basic WebSocket support',
-                'Email support',
-                '1 API key'
+                'Community support'
             ],
-            'PREMIUM': [
-                'Up to 10,000 messages/month',
+            'PRO': [
+                '1,000 messages/day',
+                '100 requests/minute',
                 'Advanced WebSocket features',
                 'Priority support',
-                '5 API keys',
                 'Message history'
             ],
             'ENTERPRISE': [
                 'Unlimited messages',
+                'Unlimited requests/minute',
                 'Full WebSocket features',
                 '24/7 dedicated support',
-                'Unlimited API keys',
                 'Advanced analytics',
                 'Custom integrations'
             ]
@@ -94,7 +71,7 @@ const PlanInfo = ({ token }) => {
         return features[planType] || [];
     };
 
-    if (loading) {
+    if (loading || !tenant) {
         return (
             <div className="animate-pulse">
                 <div className="flex items-center mb-4">
@@ -128,17 +105,6 @@ const PlanInfo = ({ token }) => {
         );
     }
 
-    if (!tenant) {
-        return (
-            <div className="text-center py-6">
-                <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <h3 className="text-lg font-medium text-gray-900 mt-2">No Plan Information</h3>
-                <p className="text-sm text-gray-500 mt-1">Unable to load your current plan details</p>
-            </div>
-        );
-    }
 
     const planFeatures = getPlanFeatures(tenant.planType);
 
@@ -209,7 +175,7 @@ const PlanInfo = ({ token }) => {
                 {/* Usage Stats (placeholder) */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-blue-800">This Month's Usage</span>
+                        <span className="text-sm font-medium text-blue-800">Daily Usage</span>
                         <span className="text-xs text-blue-600">Updated daily</span>
                     </div>
                     <div className="flex items-center">
@@ -217,8 +183,8 @@ const PlanInfo = ({ token }) => {
                             <div className="bg-blue-600 h-2 rounded-full" style={{ width: '23%' }}></div>
                         </div>
                         <span className="text-sm font-semibold text-blue-800">
-                            {tenant.planType === 'BASIC' ? '23/100' :
-                                tenant.planType === 'PREMIUM' ? '2,340/10,000' :
+                            {tenant.planType === 'FREE' ? '12/50' :
+                                tenant.planType === 'PRO' ? '234/1,000' :
                                     '∞'} messages
                         </span>
                     </div>

@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@stomp/stompjs": "^7.0.0",
+    "@stripe/react-stripe-js": "^3.9.2",
+    "@stripe/stripe-js": "^7.9.0",
     "axios": "^1.6.7",
     "commitype": "^1.0.2",
     "kanca": "^1.4.8",

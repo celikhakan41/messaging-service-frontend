@@ -1,39 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { BASE_URL } from '../services/api';
+import React, { useState } from 'react';
+import StripePayment from './StripePayment';
 
-const PlanUpgrade = ({ token, onUpgradeSuccess }) => {
+const PlanUpgrade = ({ onUpgradeSuccess, currentPlan, loading: parentLoading }) => {
     const [selectedPlan, setSelectedPlan] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [currentPlan, setCurrentPlan] = useState('');
-    const [loadingCurrentPlan, setLoadingCurrentPlan] = useState(true);
+    const [showPayment, setShowPayment] = useState(false);
+    // currentPlan artık props'tan geliyor, kendi state'imiz yok
 
     const planDetails = {
-        'BASIC': {
-            name: 'Basic',
-            price: 9.99,
-            color: 'from-blue-500 to-blue-600',
-            textColor: 'text-blue-600',
-            bgColor: 'bg-blue-50',
-            borderColor: 'border-blue-200',
-            features: [
-                'Up to 100 messages/month',
-                'Basic WebSocket support',
-                'Email support',
-                '1 API key'
-            ]
-        },
-        'PREMIUM': {
-            name: 'Premium',
+        'PRO': {
+            name: 'Pro',
             price: 29.99,
             color: 'from-purple-500 to-purple-600',
             textColor: 'text-purple-600',
             bgColor: 'bg-purple-50',
             borderColor: 'border-purple-200',
             features: [
-                'Up to 10,000 messages/month',
+                '1,000 messages/day',
+                '100 requests/minute',
                 'Advanced WebSocket features',
                 'Priority support',
-                '5 API keys',
                 'Message history'
             ],
             popular: true
@@ -47,68 +32,48 @@ const PlanUpgrade = ({ token, onUpgradeSuccess }) => {
             borderColor: 'border-yellow-200',
             features: [
                 'Unlimited messages',
+                'Unlimited requests/minute',
                 'Full WebSocket features',
                 '24/7 dedicated support',
-                'Unlimited API keys',
                 'Advanced analytics',
                 'Custom integrations'
             ]
         }
     };
 
-    useEffect(() => {
-        const fetchCurrentPlan = async () => {
-            try {
-                const response = await fetch(`${BASE_URL}/tenant`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                const data = await response.json();
-                setCurrentPlan(data.planType);
-            } catch (error) {
-                console.error('Failed to fetch current plan:', error);
-            } finally {
-                setLoadingCurrentPlan(false);
-            }
-        };
-
-        if (token) {
-            fetchCurrentPlan();
-        }
-    }, [token]);
+    // Artık kendi API çağrısı yapmıyoruz - currentPlan props'tan geliyor
 
     const availablePlans = Object.keys(planDetails).filter(plan => plan !== currentPlan);
 
-    const handleUpgrade = async () => {
+    const handleUpgrade = (event) => {
+        event.preventDefault();
         if (!selectedPlan || selectedPlan === currentPlan) {
             alert('Please select a different plan.');
             return;
         }
-
-        setLoading(true);
-        try {
-            const response = await fetch(`${BASE_URL}/tenant`, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ planType: selectedPlan })
-            });
-
-            const data = await response.json();
-
-            alert(`Invoice created for ${planDetails[selectedPlan].name} plan! Amount: ${data.amount}`);
-            if (onUpgradeSuccess) onUpgradeSuccess();
-            setSelectedPlan('');
-        } catch (error) {
-            console.error('Plan upgrade failed:', error);
-            alert('Plan upgrade failed: ' + error.message);
-        } finally {
-            setLoading(false);
-        }
+        setShowPayment(true);
     };
 
-    if (loadingCurrentPlan) {
+    // Stripe payment success handler
+    const handlePaymentSuccess = () => {
+        alert(`Payment successful! Welcome to ${planDetails[selectedPlan].name} plan!`);
+        setShowPayment(false);
+        setSelectedPlan('');
+        if (onUpgradeSuccess) onUpgradeSuccess();
+    };
+
+    // Stripe payment error handler
+    const handlePaymentError = (error) => {
+        console.error('Payment failed:', error);
+        // Error message zaten StripePayment component'inde gösteriliyor
+    };
+
+    // Payment cancel handler
+    const handlePaymentCancel = () => {
+        setShowPayment(false);
+    };
+
+    if (parentLoading || !currentPlan) {
         return (
             <div className="animate-pulse">
                 <div className="h-6 bg-gray-300 rounded w-32 mb-4"></div>
@@ -220,23 +185,23 @@ const PlanUpgrade = ({ token, onUpgradeSuccess }) => {
                     <div className="flex justify-center pt-4">
                         <button
                             onClick={handleUpgrade}
-                            disabled={loading || !selectedPlan}
+                            disabled={parentLoading || !selectedPlan}
                             className={`px-8 py-3 rounded-lg font-semibold text-white transition-all duration-200 ${
                                 selectedPlan
                                     ? `bg-gradient-to-r ${planDetails[selectedPlan]?.color} hover:shadow-lg transform hover:-translate-y-0.5`
                                     : 'bg-gray-400 cursor-not-allowed'
                             } disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none`}
                         >
-                            {loading ? (
+                            {parentLoading ? (
                                 <div className="flex items-center">
                                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                     </svg>
-                                    Creating Invoice...
+                                    Loading...
                                 </div>
                             ) : selectedPlan ? (
-                                `Upgrade to ${planDetails[selectedPlan].name} - $${planDetails[selectedPlan].price}/month`
+                                `Continue with ${planDetails[selectedPlan].name} - $${planDetails[selectedPlan].price}/month`
                             ) : (
                                 'Select a Plan to Upgrade'
                             )}
@@ -245,7 +210,36 @@ const PlanUpgrade = ({ token, onUpgradeSuccess }) => {
 
                     {/* Billing Note */}
                     <div className="text-center text-sm text-gray-500 mt-4">
-                        <p>💡 You'll receive an invoice to complete the upgrade process</p>
+                        <p>💳 Secure payment powered by Stripe</p>
+                    </div>
+                </div>
+            )}
+
+            {/* Stripe Payment Modal */}
+            {showPayment && selectedPlan && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+                        <div className="p-6">
+                            <div className="flex items-center justify-between mb-6">
+                                <h3 className="text-xl font-bold text-gray-900">Complete Payment</h3>
+                                <button
+                                    onClick={handlePaymentCancel}
+                                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                                >
+                                    <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                            
+                            <StripePayment
+                                planType={selectedPlan}
+                                planDetails={planDetails[selectedPlan]}
+                                onSuccess={handlePaymentSuccess}
+                                onError={handlePaymentError}
+                                onCancel={handlePaymentCancel}
+                            />
+                        </div>
                     </div>
                 </div>
             )}

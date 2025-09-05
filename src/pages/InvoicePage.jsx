@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BASE_URL } from '../services/api';
 
-const InvoicePage = ({ token }) => {
+const InvoicePage = () => {
     const [invoices, setInvoices] = useState([]);
     const [loading, setLoading] = useState(true);
     const [payingInvoices, setPayingInvoices] = useState(new Set());
@@ -9,25 +9,32 @@ const InvoicePage = ({ token }) => {
 
     useEffect(() => {
         fetchInvoices();
-    }, [token]);
+    }, []);
 
     const fetchInvoices = async () => {
         try {
             setLoading(true);
             setError(null);
+            const token = localStorage.getItem('token');
+            
             const response = await fetch(`${BASE_URL}/invoices`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
             if (!response.ok) {
-                throw new Error('Failed to fetch invoices');
+                // 403 durumunda user-friendly message
+                if (response.status === 403) {
+                    setError('Access denied. Invoice features may require a premium plan or additional permissions.');
+                    return;
+                }
+                throw new Error(`Failed to fetch invoices (${response.status})`);
             }
 
             const data = await response.json();
             setInvoices(data);
         } catch (err) {
             console.error('Failed to fetch invoices:', err);
-            setError(err.message);
+            setError(err.message || 'Failed to fetch invoices');
         } finally {
             setLoading(false);
         }
@@ -37,6 +44,7 @@ const InvoicePage = ({ token }) => {
         try {
             setPayingInvoices(prev => new Set(prev).add(invoiceId));
 
+            const token = localStorage.getItem('token');
             const response = await fetch(`${BASE_URL}/invoices/${invoiceId}/pay`, {
                 method: 'POST',
                 headers: {
