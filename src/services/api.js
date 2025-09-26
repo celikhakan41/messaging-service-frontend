@@ -67,6 +67,8 @@ export const payInvoice = (invoiceId) => apiClient.post(`/invoices/${invoiceId}/
 // Message Management
 export const getMessageCount = () => apiClient.get('/messages/count');
 export const getDailyUsage = () => apiClient.get('/tenant/daily-usage');
+export const sendMessage = (to, content) => apiClient.post('/messages/send', { to, content });
+export const getMessageHistory = (withUser) => apiClient.get('/messages/history', { params: { with: withUser } });
 
 // Payment Management (Stripe)
 export const createPaymentIntent = (invoiceId) => 

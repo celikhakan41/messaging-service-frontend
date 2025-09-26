@@ -1,7 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SockJS from 'sockjs-client';
 import { Client } from '@stomp/stompjs';
-import { WS_URL } from '../services/api';
+import { WS_URL, sendMessage, getMessageHistory, getDailyUsage } from '../services/api';
+
+// Utility function to decode JWT and extract tenantId
+const getTenantIdFromToken = (token) => {
+    try {
+        if (!token) return null;
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        const payload = JSON.parse(jsonPayload);
+        return payload.tenantId || payload.tenant_id || null;
+    } catch (error) {
+        console.error('Failed to decode JWT token:', error);
+        return null;
+    }
+};
 
 const Chat = ({ username }) => {
     const [messages, setMessages] = useState([]);
@@ -9,9 +26,15 @@ const Chat = ({ username }) => {
     const [content, setContent] = useState('');
     const [isConnected, setIsConnected] = useState(false);
     const [isTyping, setIsTyping] = useState(false);
+    const [isSending, setIsSending] = useState(false);
+    const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+    const [dailyUsage, setDailyUsage] = useState(null);
+    const [error, setError] = useState(null);
+    const [tenantId, setTenantId] = useState(null);
     const stompRef = useRef(null);
     const messagesEndRef = useRef(null);
     const typingTimeoutRef = useRef(null);
+    const currentSubscription = useRef(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -23,6 +46,12 @@ const Chat = ({ username }) => {
 
     useEffect(() => {
         const token = localStorage.getItem('token');
+        if (!token) return;
+
+        // Extract tenantId from token
+        const extractedTenantId = getTenantIdFromToken(token);
+        setTenantId(extractedTenantId);
+
         const socket = new SockJS(`${WS_URL}/ws?token=${token}`);
         const stompClient = new Client({
             webSocketFactory: () => socket,
@@ -30,11 +59,8 @@ const Chat = ({ username }) => {
             onConnect: () => {
                 console.log("Connected via WebSocket");
                 setIsConnected(true);
-                // Backend'e göre her kullanıcının kendi topic'i var: /topic/public/{userId}
-                stompClient.subscribe(`/topic/public/${username}`, msg => {
-                    const parsed = JSON.parse(msg.body);
-                    setMessages(prev => [...prev, parsed]);
-                });
+                // Store the stomp client for dynamic subscriptions
+                stompRef.current = stompClient;
             },
             onStompError: frame => {
                 console.error("WebSocket error", frame);
@@ -42,17 +68,133 @@ const Chat = ({ username }) => {
             },
             onDisconnect: () => {
                 setIsConnected(false);
+                if (currentSubscription.current) {
+                    currentSubscription.current = null;
+                }
             }
         });
 
         stompClient.activate();
-        stompRef.current = stompClient;
 
         return () => {
+            if (currentSubscription.current) {
+                currentSubscription.current.unsubscribe();
+                currentSubscription.current = null;
+            }
             stompClient.deactivate();
             setIsConnected(false);
         };
     }, [username]);
+
+    // Handle WebSocket subscription changes based on receiver
+    useEffect(() => {
+        if (!isConnected || !stompRef.current || !tenantId || !receiver.trim()) {
+            // Unsubscribe from current subscription if no receiver
+            if (currentSubscription.current) {
+                currentSubscription.current.unsubscribe();
+                currentSubscription.current = null;
+            }
+            return;
+        }
+
+        // Unsubscribe from previous subscription
+        if (currentSubscription.current) {
+            currentSubscription.current.unsubscribe();
+            currentSubscription.current = null;
+        }
+
+        // Subscribe to bidirectional topics
+        const receiverUser = receiver.trim();
+        const topic1 = `/topic/chat.${tenantId}.${username}.${receiverUser}`;
+        const topic2 = `/topic/chat.${tenantId}.${receiverUser}.${username}`;
+
+        console.log(`Subscribing to topics: ${topic1} and ${topic2}`);
+
+        const handleMessage = (msg) => {
+            try {
+                const parsed = JSON.parse(msg.body);
+                console.log('Received message via WebSocket:', parsed);
+
+                // Add message if it's not already in the list (avoid duplicates from optimistic UI)
+                setMessages(prev => {
+                    const existingMessage = prev.find(m =>
+                        m.timestamp === parsed.timestamp &&
+                        m.content === parsed.content &&
+                        (m.from || m.sender) === (parsed.from || parsed.sender)
+                    );
+
+                    if (existingMessage) {
+                        // Update existing message (remove pending state if it exists)
+                        return prev.map(m =>
+                            m === existingMessage
+                                ? { ...parsed, pending: false }
+                                : m
+                        );
+                    } else {
+                        // Add new message
+                        return [...prev, { ...parsed, pending: false }];
+                    }
+                });
+            } catch (error) {
+                console.error('Failed to parse WebSocket message:', error);
+            }
+        };
+
+        // Subscribe to both directions
+        const subscription1 = stompRef.current.subscribe(topic1, handleMessage);
+        const subscription2 = stompRef.current.subscribe(topic2, handleMessage);
+
+        // Store subscriptions for cleanup
+        currentSubscription.current = {
+            unsubscribe: () => {
+                subscription1.unsubscribe();
+                subscription2.unsubscribe();
+            }
+        };
+
+    }, [isConnected, tenantId, username, receiver]);
+
+    // Load message history when receiver changes
+    useEffect(() => {
+        const loadMessageHistory = async () => {
+            if (!receiver.trim()) {
+                setMessages([]);
+                return;
+            }
+
+            setIsLoadingHistory(true);
+            setError(null);
+
+            try {
+                const response = await getMessageHistory(receiver.trim());
+                setMessages(response.data || []);
+            } catch (error) {
+                console.error('Failed to load message history:', error);
+                setError('Failed to load message history.');
+                setMessages([]);
+            } finally {
+                setIsLoadingHistory(false);
+            }
+        };
+
+        // Debounce the history loading to avoid too many requests
+        const timeoutId = setTimeout(loadMessageHistory, 500);
+        return () => clearTimeout(timeoutId);
+    }, [receiver]);
+
+    // Load daily usage on component mount
+    useEffect(() => {
+        const loadDailyUsage = async () => {
+            try {
+                const response = await getDailyUsage();
+                setDailyUsage(response.data);
+            } catch (error) {
+                console.warn('Failed to load daily usage:', error);
+            }
+        };
+
+        loadDailyUsage();
+    }, []);
 
     const handleTyping = (value) => {
         setContent(value);
@@ -67,7 +209,7 @@ const Chat = ({ username }) => {
         }, 1000);
     };
 
-    const send = () => {
+    const send = async () => {
         if (!content.trim()) {
             return;
         }
@@ -77,21 +219,84 @@ const Chat = ({ username }) => {
             return;
         }
 
-        if (stompRef.current && stompRef.current.connected) {
-            const msg = {
-                sender: username,
-                receiver: receiver.trim(),
+        if (isSending) {
+            return;
+        }
+
+        setIsSending(true);
+        setError(null);
+
+        try {
+            // Optimistic UI: Add message immediately
+            const optimisticMessage = {
+                from: username,
+                to: receiver.trim(),
                 content: content.trim(),
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                pending: true
             };
-            stompRef.current.publish({
-                destination: "/app/chat.sendMessage",
-                body: JSON.stringify(msg)
-            });
+            setMessages(prev => [...prev, optimisticMessage]);
+
+            // Send via REST API (primary method)
+            const response = await sendMessage(receiver.trim(), content.trim());
+
+            // Optionally also send via STOMP for immediate broadcasting
+            // (Backend supports both, REST already triggers broadcast)
+            if (stompRef.current && stompRef.current.connected) {
+                try {
+                    stompRef.current.publish({
+                        destination: "/app/send",
+                        body: JSON.stringify({
+                            sender: username,
+                            receiver: receiver.trim(),
+                            content: content.trim()
+                        })
+                    });
+                } catch (stompError) {
+                    console.warn('STOMP send failed, but REST succeeded:', stompError);
+                }
+            }
+
+            // Replace optimistic message with server response
+            setMessages(prev =>
+                prev.map(msg =>
+                    msg.pending && msg.content === content.trim()
+                        ? { ...response.data, pending: false }
+                        : msg
+                )
+            );
+
             setContent('');
             setIsTyping(false);
-        } else {
-            alert('WebSocket connection could not be established. Please try again.');
+
+            // Refresh daily usage after successful send
+            try {
+                const usageResponse = await getDailyUsage();
+                setDailyUsage(usageResponse.data);
+            } catch (err) {
+                console.warn('Failed to refresh daily usage:', err);
+            }
+
+        } catch (error) {
+            console.error('Failed to send message:', error);
+
+            // Remove optimistic message on error
+            setMessages(prev =>
+                prev.filter(msg => !(msg.pending && msg.content === content.trim()))
+            );
+
+            // Handle specific error cases
+            if (error.response?.status === 429) {
+                setError('Daily message limit reached. Please upgrade your plan or try again tomorrow.');
+            } else if (error.response?.status === 404) {
+                setError('User not found. Please check the username and try again.');
+            } else if (error.response?.status === 400) {
+                setError('Invalid message. Please check your input and try again.');
+            } else {
+                setError('Failed to send message. Please try again.');
+            }
+        } finally {
+            setIsSending(false);
         }
     };
 
@@ -108,7 +313,7 @@ const Chat = ({ username }) => {
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
-    const isMyMessage = (message) => message.sender === username;
+    const isMyMessage = (message) => (message.sender || message.from) === username;
 
     return (
         <div className="flex flex-col h-full">
@@ -129,12 +334,22 @@ const Chat = ({ username }) => {
                         <h3 className="text-lg font-semibold text-gray-900">Chat Messages</h3>
                         <p className="text-sm text-gray-500">
                             {isConnected ? 'Connected' : 'Disconnected'}
+                            {tenantId && ` • Tenant: ${tenantId}`}
+                            {receiver && ` • Chatting with: ${receiver}`}
                         </p>
                     </div>
                 </div>
 
                 <div className="text-sm text-gray-500">
-                    {messages.length} message{messages.length !== 1 ? 's' : ''}
+                    {isLoadingHistory ? 'Loading...' : `${messages.length} message${messages.length !== 1 ? 's' : ''}`}
+                    {dailyUsage && (
+                        <div className="text-xs mt-1">
+                            {dailyUsage.dailyLimit === -1
+                                ? `${dailyUsage.dailyUsage} sent today`
+                                : `${dailyUsage.dailyUsage}/${dailyUsage.dailyLimit} sent today`
+                            }
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -154,40 +369,83 @@ const Chat = ({ username }) => {
                 </div>
             </div>
 
+            {/* Error Message */}
+            {error && (
+                <div className="p-4 bg-red-50 border-b border-red-200">
+                    <div className="flex items-center space-x-2">
+                        <svg className="h-5 w-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-sm text-red-700">{error}</span>
+                        <button
+                            onClick={() => setError(null)}
+                            className="ml-auto text-red-500 hover:text-red-700"
+                        >
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Messages Area */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
-                {messages.length === 0 ? (
+                {isLoadingHistory ? (
+                    <div className="flex items-center justify-center h-full">
+                        <div className="text-center">
+                            <svg className="animate-spin h-8 w-8 text-gray-400 mx-auto" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <p className="text-sm text-gray-500 mt-2">Loading conversation...</p>
+                        </div>
+                    </div>
+                ) : messages.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
                         <div className="text-center">
                             <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                             </svg>
-                            <h3 className="text-lg font-medium text-gray-500 mt-2">No messages yet</h3>
-                            <p className="text-sm text-gray-400 mt-1">Start a conversation by sending a message</p>
+                            <h3 className="text-lg font-medium text-gray-500 mt-2">
+                                {receiver ? `No messages with ${receiver}` : 'No messages yet'}
+                            </h3>
+                            <p className="text-sm text-gray-400 mt-1">
+                                {receiver ? 'Start a conversation by sending a message' : 'Enter a username to start chatting'}
+                            </p>
                         </div>
                     </div>
                 ) : (
                     messages.map((message, idx) => {
                         const isMe = isMyMessage(message);
+                        const isPending = message.pending;
                         return (
                             <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${
+                                <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl relative ${
                                     isMe
-                                        ? 'bg-blue-600 text-white rounded-br-sm'
+                                        ? `${isPending ? 'bg-blue-400' : 'bg-blue-600'} text-white rounded-br-sm`
                                         : 'bg-white text-gray-900 border border-gray-200 rounded-bl-sm shadow-sm'
-                                }`}>
+                                } ${isPending ? 'opacity-70' : ''}`}>
                                     {!isMe && (
                                         <div className="text-xs font-medium text-gray-500 mb-1">
-                                            {message.sender}
+                                            {message.sender || message.from}
                                         </div>
                                     )}
                                     <div className="text-sm leading-relaxed">
                                         {message.content}
                                     </div>
-                                    <div className={`text-xs mt-1 ${
+                                    <div className={`text-xs mt-1 flex items-center ${
                                         isMe ? 'text-blue-100' : 'text-gray-400'
                                     }`}>
-                                        {formatTime(message.timestamp)}
+                                        <span>{formatTime(message.timestamp)}</span>
+                                        {isPending && isMe && (
+                                            <div className="ml-2 flex items-center">
+                                                <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -218,12 +476,26 @@ const Chat = ({ username }) => {
                     </div>
                     <button
                         onClick={send}
-                        disabled={!content.trim() || !receiver.trim() || !isConnected}
+                        disabled={!content.trim() || !receiver.trim() || isSending || (dailyUsage && dailyUsage.dailyLimit !== -1 && dailyUsage.dailyUsage >= dailyUsage.dailyLimit)}
                         className="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={
+                            dailyUsage && dailyUsage.dailyLimit !== -1 && dailyUsage.dailyUsage >= dailyUsage.dailyLimit
+                                ? 'Daily message limit reached'
+                                : isSending
+                                ? 'Sending...'
+                                : 'Send message'
+                        }
                     >
-                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                        </svg>
+                        {isSending ? (
+                            <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        ) : (
+                            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                            </svg>
+                        )}
                     </button>
                 </div>
             </div>
