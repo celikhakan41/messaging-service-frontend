@@ -96,6 +96,68 @@ const Dashboard = ({ username, onLogout }) => {
         fetchStats();
     }, [refreshKey]);
 
+    // Handle Stripe Checkout success return
+    useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const success = urlParams.get('success');
+        const canceled = urlParams.get('canceled');
+        const sessionId = urlParams.get('session_id'); // Stripe adds this automatically
+
+        if (success === 'true') {
+            // Payment successful - check for pending upgrade
+            const pendingUpgrade = localStorage.getItem('pendingUpgrade');
+            if (pendingUpgrade) {
+                try {
+                    const upgrade = JSON.parse(pendingUpgrade);
+
+                    // Verify session ID if available (extra security)
+                    if (sessionId && upgrade.sessionId && sessionId !== upgrade.sessionId) {
+                        console.warn('Session ID mismatch, possible security issue');
+                    }
+
+                    // Clear pending upgrade
+                    localStorage.removeItem('pendingUpgrade');
+
+                    // Show success message
+                    const planName = upgrade.planType === 'PRO' ? 'Pro' : 'Enterprise';
+                    alert(`🎉 Payment successful! Welcome to ${planName} plan!`);
+
+                    // Refresh data - both tenant info and potentially invoices
+                    setRefreshKey(prev => prev + 1);
+                } catch (error) {
+                    console.error('Error processing upgrade success:', error);
+                    // Still refresh data in case of JSON parse error
+                    setRefreshKey(prev => prev + 1);
+                }
+            } else {
+                // Success without pending upgrade (direct return)
+                console.log('Payment success detected, refreshing data');
+                setRefreshKey(prev => prev + 1);
+            }
+
+            // Clean URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+        } else if (canceled === 'true') {
+            // Payment canceled
+            const pendingUpgrade = localStorage.getItem('pendingUpgrade');
+            if (pendingUpgrade) {
+                try {
+                    const upgrade = JSON.parse(pendingUpgrade);
+                    console.log(`Payment canceled for ${upgrade.planType} plan`);
+                } catch (error) {
+                    console.error('Error processing cancel:', error);
+                }
+                localStorage.removeItem('pendingUpgrade');
+            }
+
+            // Optional: Show cancel message (less intrusive than alert)
+            console.log('Payment was canceled by user');
+
+            // Clean URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    }, []);
+
     // Handle upgrade success
     const handleUpgradeSuccess = useCallback(() => {
         setRefreshKey(prev => prev + 1);

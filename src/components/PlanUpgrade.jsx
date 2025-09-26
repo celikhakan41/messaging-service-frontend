@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import StripePayment from './StripePayment';
+import CheckoutFlow from './CheckoutFlow';
 
 const PlanUpgrade = ({ onUpgradeSuccess, currentPlan, loading: parentLoading }) => {
     const [selectedPlan, setSelectedPlan] = useState('');
     const [showPayment, setShowPayment] = useState(false);
+    const [paymentMethod, setPaymentMethod] = useState('checkout'); // Default to checkout (Option A)
     // currentPlan artık props'tan geliyor, kendi state'imiz yok
 
     const planDetails = {
@@ -25,7 +27,7 @@ const PlanUpgrade = ({ onUpgradeSuccess, currentPlan, loading: parentLoading }) 
         },
         'ENTERPRISE': {
             name: 'Enterprise',
-            price: 99.99,
+            price: 89.99,
             color: 'from-yellow-500 to-orange-600',
             textColor: 'text-yellow-600',
             bgColor: 'bg-yellow-50',
@@ -208,6 +210,42 @@ const PlanUpgrade = ({ onUpgradeSuccess, currentPlan, loading: parentLoading }) 
                         </button>
                     </div>
 
+                    {/* Primary Action - Checkout */}
+                    <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="flex items-center mb-2">
+                            <svg className="h-5 w-5 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <h4 className="text-sm font-semibold text-blue-900">Secure Stripe Checkout</h4>
+                            <span className="ml-2 text-xs bg-blue-600 text-white px-2 py-1 rounded-full">Recommended</span>
+                        </div>
+                        <p className="text-sm text-blue-700">
+                            Fast, secure payment with saved cards and mobile optimization
+                        </p>
+                    </div>
+
+                    {/* Alternative Option */}
+                    <details className="mt-4">
+                        <summary className="cursor-pointer text-sm text-gray-600 hover:text-gray-800">
+                            Advanced: Use card form instead
+                        </summary>
+                        <div className="mt-3 p-3 bg-gray-50 rounded border-l-4 border-gray-300">
+                            <label className="flex items-center cursor-pointer">
+                                <input
+                                    type="radio"
+                                    name="paymentMethod"
+                                    value="elements"
+                                    checked={paymentMethod === 'elements'}
+                                    onChange={(e) => setPaymentMethod(e.target.value)}
+                                    className="text-blue-600 focus:ring-blue-500"
+                                />
+                                <span className="ml-2 text-sm text-gray-700">
+                                    Use embedded card form
+                                </span>
+                            </label>
+                        </div>
+                    </details>
+
                     {/* Billing Note */}
                     <div className="text-center text-sm text-gray-500 mt-4">
                         <p>💳 Secure payment powered by Stripe</p>
@@ -232,13 +270,23 @@ const PlanUpgrade = ({ onUpgradeSuccess, currentPlan, loading: parentLoading }) 
                                 </button>
                             </div>
                             
-                            <StripePayment
-                                planType={selectedPlan}
-                                planDetails={planDetails[selectedPlan]}
-                                onSuccess={handlePaymentSuccess}
-                                onError={handlePaymentError}
-                                onCancel={handlePaymentCancel}
-                            />
+                            {paymentMethod === 'checkout' ? (
+                                <CheckoutFlow
+                                    planType={selectedPlan}
+                                    planDetails={planDetails[selectedPlan]}
+                                    onSuccess={handlePaymentSuccess}
+                                    onError={handlePaymentError}
+                                    onCancel={handlePaymentCancel}
+                                />
+                            ) : (
+                                <StripePayment
+                                    planType={selectedPlan}
+                                    planDetails={planDetails[selectedPlan]}
+                                    onSuccess={handlePaymentSuccess}
+                                    onError={handlePaymentError}
+                                    onCancel={handlePaymentCancel}
+                                />
+                            )}
                         </div>
                     </div>
                 </div>

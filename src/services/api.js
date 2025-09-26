@@ -74,8 +74,21 @@ export const getMessageHistory = (withUser) => apiClient.get('/messages/history'
 export const createPaymentIntent = (invoiceId) => 
   apiClient.post(`/invoices/${invoiceId}/payment-intent`);
 
-export const createSubscription = (planType, tenantId) => 
-  apiClient.post('/subscriptions', { planType, tenantId });
+export const createSubscription = (planType) =>
+  apiClient.post('/subscriptions', { planType });
+
+export const createSetupIntent = () =>
+  apiClient.post('/subscriptions/setup-intent');
+
+export const createCheckoutSession = (planType, mode = 'subscription', successUrl = null, cancelUrl = null) => {
+  const payload = { planType, mode };
+
+  // Add URLs if provided, otherwise backend will use defaults
+  if (successUrl) payload.successUrl = successUrl;
+  if (cancelUrl) payload.cancelUrl = cancelUrl;
+
+  return apiClient.post('/billing/checkout-session', payload);
+};
 
 export const checkPaymentStatus = (invoiceId) => 
   apiClient.get(`/invoices/${invoiceId}`);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BASE_URL } from '../services/api';
+import { getInvoices, payInvoice as payInvoiceAPI } from '../services/api';
 
 const InvoicePage = () => {
     const [invoices, setInvoices] = useState([]);
@@ -15,26 +15,18 @@ const InvoicePage = () => {
         try {
             setLoading(true);
             setError(null);
-            const token = localStorage.getItem('token');
-            
-            const response = await fetch(`${BASE_URL}/invoices`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
 
-            if (!response.ok) {
-                // 403 durumunda user-friendly message
-                if (response.status === 403) {
-                    setError('Access denied. Invoice features may require a premium plan or additional permissions.');
-                    return;
-                }
-                throw new Error(`Failed to fetch invoices (${response.status})`);
-            }
-
-            const data = await response.json();
-            setInvoices(data);
+            const response = await getInvoices();
+            setInvoices(response.data || []);
         } catch (err) {
             console.error('Failed to fetch invoices:', err);
-            setError(err.message || 'Failed to fetch invoices');
+
+            // Handle specific error cases
+            if (err.response?.status === 403) {
+                setError('Access denied. Invoice features may require a premium plan or additional permissions.');
+            } else {
+                setError(err.response?.data?.message || err.message || 'Failed to fetch invoices');
+            }
         } finally {
             setLoading(false);
         }
@@ -44,24 +36,17 @@ const InvoicePage = () => {
         try {
             setPayingInvoices(prev => new Set(prev).add(invoiceId));
 
-            const token = localStorage.getItem('token');
-            const response = await fetch(`${BASE_URL}/invoices/${invoiceId}/pay`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error('Payment failed');
-            }
+            // Use the API service for consistent error handling
+            await payInvoiceAPI(invoiceId);
 
             alert("Payment successful!");
             fetchInvoices(); // Refresh list
-        } catch (e) {
-            console.error('Payment failed:', e);
-            alert("Payment failed: " + e.message);
+        } catch (err) {
+            console.error('Payment failed:', err);
+
+            // Better error messaging
+            const errorMessage = err.response?.data?.message || err.message || 'Payment failed';
+            alert(`Payment failed: ${errorMessage}`);
         } finally {
             setPayingInvoices(prev => {
                 const newSet = new Set(prev);

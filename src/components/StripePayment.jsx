@@ -6,7 +6,7 @@ import {
     useElements,
     useStripe
 } from '@stripe/react-stripe-js';
-import { createPaymentIntent, createSubscription, checkPaymentStatus } from '../services/api';
+import { createPaymentIntent, createSubscription, createSetupIntent, getTenantInfo, getInvoices } from '../services/api';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
@@ -42,12 +42,45 @@ const CheckoutForm = ({ planType, planDetails, onSuccess, onError, onCancel, pay
             }
 
             if (paymentType === 'subscription') {
-                // Subscription flow
-                const tenantId = localStorage.getItem('tenantId') || 'current-tenant';
-                const { data: subscription } = await createSubscription(planType, tenantId);
+                // Elements subscription flow - tenantId is handled by backend from JWT
+                // First get setup intent, then create subscription
+                const { data: setupIntent } = await createSetupIntent();
+
+                if (!setupIntent.clientSecret) {
+                    throw new Error('Setup intent failed');
+                }
+
+                // Confirm card setup
+                const { error: setupError, setupIntent: confirmedSetup } = await stripe.confirmCardSetup(
+                    setupIntent.clientSecret,
+                    {
+                        payment_method: {
+                            card: cardElement,
+                            billing_details: {
+                                name: 'Customer Name', // TODO: Get from user profile
+                                email: 'customer@example.com' // TODO: Get from user profile
+                            }
+                        }
+                    }
+                );
+
+                if (setupError) {
+                    const errorMessage = STRIPE_ERRORS[setupError.code] || setupError.message;
+                    setError(errorMessage);
+                    if (onError) onError(setupError);
+                    return;
+                }
+
+                // Create subscription with confirmed payment method
+                const { data: subscription } = await createSubscription(planType);
                 
                 if (subscription.status === 'active') {
-                    // Subscription successful
+                    // Subscription successful - refresh tenant info
+                    try {
+                        await getTenantInfo(); // Refresh tenant data in background
+                    } catch (refreshError) {
+                        console.warn('Failed to refresh tenant info after successful payment:', refreshError);
+                    }
                     if (onSuccess) onSuccess({ subscription, planType });
                 } else if (subscription.latest_invoice?.payment_intent?.client_secret) {
                     // Additional authentication required
@@ -69,6 +102,12 @@ const CheckoutForm = ({ planType, planDetails, onSuccess, onError, onCancel, pay
                         setError(errorMessage);
                         if (onError) onError(stripeError);
                     } else if (paymentIntent.status === 'succeeded') {
+                        // Payment successful - refresh tenant info
+                        try {
+                            await getTenantInfo(); // Refresh tenant data in background
+                        } catch (refreshError) {
+                            console.warn('Failed to refresh tenant info after successful payment:', refreshError);
+                        }
                         if (onSuccess) onSuccess({ paymentIntent, subscription, planType });
                     }
                 }
@@ -92,6 +131,12 @@ const CheckoutForm = ({ planType, planDetails, onSuccess, onError, onCancel, pay
                     setError(errorMessage);
                     if (onError) onError(stripeError);
                 } else if (paymentIntent.status === 'succeeded') {
+                    // Invoice payment successful - refresh invoices list
+                    try {
+                        await getInvoices(); // Refresh invoices data in background
+                    } catch (refreshError) {
+                        console.warn('Failed to refresh invoices after successful payment:', refreshError);
+                    }
                     if (onSuccess) onSuccess({ paymentIntent, invoiceId, amount });
                 }
             }
