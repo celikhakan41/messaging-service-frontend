@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const PlanInfo = ({ tenantInfo, loading }) => {
+const PlanInfo = ({ tenantInfo, dailyUsage, loading }) => {
     const [error] = useState(null);
     
     // Dashboard'dan gelen tenantInfo'yu kullanıyoruz, kendi API çağrısı yapmıyoruz
@@ -172,7 +172,7 @@ const PlanInfo = ({ tenantInfo, loading }) => {
                     </div>
                 </div>
 
-                {/* Usage Stats (placeholder) */}
+                {/* Usage Stats (Real Data) */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-sm font-medium text-blue-800">Daily Usage</span>
@@ -180,12 +180,23 @@ const PlanInfo = ({ tenantInfo, loading }) => {
                     </div>
                     <div className="flex items-center">
                         <div className="flex-1 bg-blue-200 rounded-full h-2 mr-3">
-                            <div className="bg-blue-600 h-2 rounded-full" style={{ width: '23%' }}></div>
+                            {dailyUsage && dailyUsage.dailyLimit > 0 && (
+                                <div
+                                    className="bg-blue-600 h-2 rounded-full"
+                                    style={{
+                                        width: `${Math.min((dailyUsage.dailyUsage / dailyUsage.dailyLimit) * 100, 100)}%`
+                                    }}
+                                ></div>
+                            )}
                         </div>
                         <span className="text-sm font-semibold text-blue-800">
-                            {tenant.planType === 'FREE' ? '12/50' :
-                                tenant.planType === 'PRO' ? '234/1,000' :
-                                    '∞'} messages
+                            {dailyUsage ? (
+                                dailyUsage.dailyLimit === -1 ?
+                                    `${dailyUsage.dailyUsage.toLocaleString()}/∞ messages` :
+                                    `${dailyUsage.dailyUsage}/${dailyUsage.dailyLimit} messages`
+                            ) : (
+                                loading ? 'Loading...' : 'N/A'
+                            )}
                         </span>
                     </div>
                 </div>

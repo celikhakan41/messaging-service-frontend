@@ -4,7 +4,7 @@ import InvoicePage from './InvoicePage.jsx';
 import PlanInfo from './PlanInfo.jsx';
 import PlanUpgrade from '../components/PlanUpgrade.jsx';
 import ApiKeyManager from '../components/ApiKeyManager.jsx';
-import { getTenantInfo, getMessageCount, getApiKeyCount } from '../services/api.js';
+import { getTenantInfo, getMessageCount, getApiKeyCount, getDailyUsage } from '../services/api.js';
 
 const Dashboard = ({ username, onLogout }) => {
     const [activeTab, setActiveTab] = useState('overview');
@@ -17,6 +17,7 @@ const Dashboard = ({ username, onLogout }) => {
         planType: 'FREE',
         tenantInfo: null, // Tenant info eksikti
         apiKeys: 0,
+        dailyUsage: null, // Daily usage data
         loading: true,
         error: null,
         lastRefresh: null
@@ -40,32 +41,38 @@ const Dashboard = ({ username, onLogout }) => {
 
             // Use Promise.all instead of Promise.allSettled for simpler error handling
             // Individual failures won't break the entire operation
-            const [messagesResult, tenantResult, apiKeysResult] = await Promise.allSettled([
+            const [messagesResult, tenantResult, apiKeysResult, dailyUsageResult] = await Promise.allSettled([
                 getMessageCount().catch(err => ({ data: 0, error: err })),
                 getTenantInfo().catch(err => ({ data: { planType: 'FREE' }, error: err })),
-                getApiKeyCount().catch(err => ({ data: 0, error: err }))
+                getApiKeyCount().catch(err => ({ data: 0, error: err })),
+                getDailyUsage().catch(err => ({ data: { dailyUsage: 0, dailyLimit: 50 }, error: err }))
             ]);
 
             if (!isMountedRef.current) return;
 
             // Extract data with proper error handling
-            const messageCount = messagesResult.status === 'fulfilled' 
-                ? (messagesResult.value?.data || 0) 
+            const messageCount = messagesResult.status === 'fulfilled'
+                ? (messagesResult.value?.data || 0)
                 : 0;
 
-            const tenantInfo = tenantResult.status === 'fulfilled' 
-                ? tenantResult.value?.data 
+            const tenantInfo = tenantResult.status === 'fulfilled'
+                ? tenantResult.value?.data
                 : { planType: 'FREE' };
 
-            const apiKeyCount = apiKeysResult.status === 'fulfilled' 
-                ? (apiKeysResult.value?.data || 0) 
+            const apiKeyCount = apiKeysResult.status === 'fulfilled'
+                ? (apiKeysResult.value?.data || 0)
                 : 0;
+
+            const dailyUsage = dailyUsageResult.status === 'fulfilled'
+                ? dailyUsageResult.value?.data
+                : { dailyUsage: 0, dailyLimit: 50 };
 
             setStats({
                 messages: typeof messageCount === 'number' ? messageCount : 0,
                 planType: tenantInfo?.planType || 'FREE',
                 tenantInfo: tenantInfo, // Tenant info'yu state'e ekliyoruz
                 apiKeys: typeof apiKeyCount === 'number' ? apiKeyCount : 0,
+                dailyUsage: dailyUsage, // Daily usage data'yı state'e ekliyoruz
                 loading: false,
                 error: null,
                 lastRefresh: new Date()
@@ -162,7 +169,7 @@ const Dashboard = ({ username, onLogout }) => {
                     <div className="space-y-6">
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                                <PlanInfo key={`plan-${refreshKey}`} tenantInfo={stats.tenantInfo} loading={stats.loading} />
+                                <PlanInfo key={`plan-${refreshKey}`} tenantInfo={stats.tenantInfo} dailyUsage={stats.dailyUsage} loading={stats.loading} />
                             </div>
                             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                                 <PlanUpgrade onUpgradeSuccess={handleUpgradeSuccess} currentPlan={stats.planType} loading={stats.loading} />
