@@ -115,25 +115,81 @@ const Chat = ({ username }) => {
                 const parsed = JSON.parse(msg.body);
                 console.log('Received message via WebSocket:', parsed);
 
-                // Add message if it's not already in the list (avoid duplicates from optimistic UI)
                 setMessages(prev => {
-                    const existingMessage = prev.find(m =>
-                        m.timestamp === parsed.timestamp &&
-                        m.content === parsed.content &&
-                        (m.from || m.sender) === (parsed.from || parsed.sender)
-                    );
+                    // Generate a robust key for duplicate detection
+                    const keyOf = (m) => {
+                        const id = m.id || m.messageId;
+                        if (id) return `id:${id}`;
+                        return [
+                            m.timestamp,
+                            (m.from || m.sender),
+                            (m.to || m.receiver),
+                            m.content
+                        ].join('|');
+                    };
 
-                    if (existingMessage) {
-                        // Update existing message (remove pending state if it exists)
-                        return prev.map(m =>
-                            m === existingMessage
-                                ? { ...parsed, pending: false }
-                                : m
-                        );
-                    } else {
-                        // Add new message
-                        return [...prev, { ...parsed, pending: false }];
+                    const parsedKey = keyOf(parsed);
+
+                    // Check if this message already exists (prevents duplicates from subscribing to two topics)
+                    const alreadyExists = prev.some(m => !m.tempId && keyOf(m) === parsedKey);
+
+                    if (alreadyExists) {
+                        console.log('Message already exists, ensuring optimistic copy is removed');
+                        // If the real message is already in the list, remove any matching optimistic one
+                        const idxToRemove = (() => {
+                            for (let i = prev.length - 1; i >= 0; i--) {
+                                const m = prev[i];
+                                if (
+                                    m.tempId &&
+                                    m.pending &&
+                                    m.content === parsed.content &&
+                                    (m.from || m.sender) === (parsed.from || parsed.sender) &&
+                                    (m.to || m.receiver) === (parsed.to || parsed.receiver)
+                                ) {
+                                    return i;
+                                }
+                            }
+                            return -1;
+                        })();
+
+                        if (idxToRemove !== -1) {
+                            const newMessages = [...prev];
+                            newMessages.splice(idxToRemove, 1);
+                            return newMessages;
+                        }
+                        return prev;
                     }
+
+                    // Find matching optimistic message (latest pending with same from/to/content)
+                    // We avoid timestamp equality due to timezone differences; use recency vs now instead
+                    const optimisticIndex = (() => {
+                        for (let i = prev.length - 1; i >= 0; i--) {
+                            const m = prev[i];
+                            if (
+                                m.tempId &&
+                                m.pending &&
+                                m.content === parsed.content &&
+                                (m.from || m.sender) === (parsed.from || parsed.sender) &&
+                                (m.to || m.receiver) === (parsed.to || parsed.receiver) &&
+                                // created in the last 60s (client time)
+                                Date.now() - new Date(m.timestamp).getTime() < 60_000
+                            ) {
+                                return i;
+                            }
+                        }
+                        return -1;
+                    })();
+
+                    if (optimisticIndex !== -1) {
+                        // Replace optimistic message with real one
+                        console.log('Replacing optimistic message with WebSocket message');
+                        const newMessages = [...prev];
+                        newMessages[optimisticIndex] = { ...parsed, pending: false };
+                        return newMessages;
+                    }
+
+                    // Add new message (from other user or no matching optimistic)
+                    return [...prev, { ...parsed, pending: false }];
                 });
             } catch (error) {
                 console.error('Failed to parse WebSocket message:', error);
@@ -219,55 +275,32 @@ const Chat = ({ username }) => {
             return;
         }
 
-        if (isSending) {
-            return;
-        }
-
         setIsSending(true);
         setError(null);
 
+        const messageContent = content.trim();
+        const tempId = `temp-${Date.now()}-${Math.random()}`;
+
         try {
-            // Optimistic UI: Add message immediately
+            // Optimistic UI: Add message immediately with temporary ID
             const optimisticMessage = {
                 from: username,
                 to: receiver.trim(),
-                content: content.trim(),
+                content: messageContent,
                 timestamp: new Date().toISOString(),
-                pending: true
+                pending: true,
+                tempId: tempId
             };
             setMessages(prev => [...prev, optimisticMessage]);
 
-            // Send via REST API (primary method)
-            const response = await sendMessage(receiver.trim(), content.trim());
-
-            // Optionally also send via STOMP for immediate broadcasting
-            // (Backend supports both, REST already triggers broadcast)
-            if (stompRef.current && stompRef.current.connected) {
-                try {
-                    stompRef.current.publish({
-                        destination: "/app/send",
-                        body: JSON.stringify({
-                            sender: username,
-                            receiver: receiver.trim(),
-                            content: content.trim()
-                        })
-                    });
-                } catch (stompError) {
-                    console.warn('STOMP send failed, but REST succeeded:', stompError);
-                }
-            }
-
-            // Replace optimistic message with server response
-            setMessages(prev =>
-                prev.map(msg =>
-                    msg.pending && msg.content === content.trim()
-                        ? { ...response.data, pending: false }
-                        : msg
-                )
-            );
-
+            // Clear input immediately for better UX
             setContent('');
             setIsTyping(false);
+
+            // Send via REST API (primary method)
+            // REST API already triggers WebSocket broadcast
+            // WebSocket handler will replace the optimistic message
+            await sendMessage(receiver.trim(), messageContent);
 
             // Refresh daily usage after successful send
             try {
@@ -281,9 +314,7 @@ const Chat = ({ username }) => {
             console.error('Failed to send message:', error);
 
             // Remove optimistic message on error
-            setMessages(prev =>
-                prev.filter(msg => !(msg.pending && msg.content === content.trim()))
-            );
+            setMessages(prev => prev.filter(msg => msg.tempId !== tempId));
 
             // Handle specific error cases
             if (error.response?.status === 429) {
@@ -300,7 +331,7 @@ const Chat = ({ username }) => {
         }
     };
 
-    const handleKeyPress = (e) => {
+    const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             send();
@@ -420,7 +451,7 @@ const Chat = ({ username }) => {
                         const isMe = isMyMessage(message);
                         const isPending = message.pending;
                         return (
-                            <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                            <div key={(message.tempId || message.id || message.messageId || message.timestamp || idx)} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                                 <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl relative ${
                                     isMe
                                         ? `${isPending ? 'bg-blue-400' : 'bg-blue-600'} text-white rounded-br-sm`
@@ -462,7 +493,7 @@ const Chat = ({ username }) => {
                         <textarea
                             value={content}
                             onChange={(e) => handleTyping(e.target.value)}
-                            onKeyPress={handleKeyPress}
+                            onKeyDown={handleKeyDown}
                             placeholder="Type your message..."
                             className="w-full px-4 py-3 border border-gray-300 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-sm"
                             rows="1"
@@ -476,7 +507,7 @@ const Chat = ({ username }) => {
                     </div>
                     <button
                         onClick={send}
-                        disabled={!content.trim() || !receiver.trim() || isSending || (dailyUsage && dailyUsage.dailyLimit !== -1 && dailyUsage.dailyUsage >= dailyUsage.dailyLimit)}
+                        disabled={!content.trim() || !receiver.trim() || (dailyUsage && dailyUsage.dailyLimit !== -1 && dailyUsage.dailyUsage >= dailyUsage.dailyLimit)}
                         className="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         title={
                             dailyUsage && dailyUsage.dailyLimit !== -1 && dailyUsage.dailyUsage >= dailyUsage.dailyLimit
