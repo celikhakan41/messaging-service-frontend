@@ -60,7 +60,12 @@ export const getTenantInfo = () => apiClient.get('/tenant');
 export const updateTenantPlan = (planType) => apiClient.put('/tenant/plan', { planType });
 
 // Invoice Management
-export const getInvoices = (status) => apiClient.get('/invoices', { params: { status } });
+export const getInvoices = (status) => {
+  if (typeof status === 'string' && status.length > 0) {
+    return apiClient.get('/invoices', { params: { status } });
+  }
+  return apiClient.get('/invoices');
+};
 export const getInvoiceById = (id) => apiClient.get(`/invoices/${id}`);
 export const payInvoice = (invoiceId) => apiClient.post(`/invoices/${invoiceId}/pay`);
 
